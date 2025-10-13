@@ -1,11 +1,13 @@
 use anyhow::{Context, Result};
+use bigdecimal::BigDecimal;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+use std::str::FromStr;
 
 #[derive(Parser)]
 #[command(name = "database-meta")]
@@ -100,8 +102,11 @@ impl DatabaseMetaProcessor {
             for row in rows {
                 let mut record = HashMap::new();
                 for (i, field) in fields.iter().enumerate() {
-                    let value: Option<String> = row.try_get(i).unwrap_or(None);
-                    record.insert(field.clone(), serde_json::Value::String(value.unwrap_or_default()));
+                    let column_config = table_config.columns.iter()
+                        .find(|c| c.column_name == *field)
+                        .unwrap_or(&table_config.columns[0]); // fallback, should not happen
+                    let value = self.extract_typed_value(&row, i, column_config);
+                    record.insert(field.clone(), value);
                 }
                 records.push(record);
             }
@@ -111,11 +116,32 @@ impl DatabaseMetaProcessor {
                 records.sort_by(|a, b| {
                     for col in &order_columns {
                         if let (Some(val_a), Some(val_b)) = (a.get(col), b.get(col)) {
-                            let str_a = val_a.as_str().unwrap_or("");
-                            let str_b = val_b.as_str().unwrap_or("");
-                            match str_a.cmp(str_b) {
-                                std::cmp::Ordering::Equal => continue,
-                                ordering => return ordering,
+                            // Handle different value types for comparison
+                            match (val_a, val_b) {
+                                (serde_json::Value::Number(n1), serde_json::Value::Number(n2)) => {
+                                    match (n1.as_i64(), n2.as_i64()) {
+                                        (Some(i1), Some(i2)) => match i1.cmp(&i2) {
+                                            std::cmp::Ordering::Equal => continue,
+                                            ordering => return ordering,
+                                        },
+                                        _ => match (n1.as_f64(), n2.as_f64()) {
+                                            (Some(f1), Some(f2)) => match f1.partial_cmp(&f2) {
+                                                Some(std::cmp::Ordering::Equal) => continue,
+                                                Some(ordering) => return ordering,
+                                                None => continue,
+                                            },
+                                            _ => continue,
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    let str_a = val_a.as_str().map(|s| s.to_string()).unwrap_or_else(|| val_a.to_string());
+                                    let str_b = val_b.as_str().map(|s| s.to_string()).unwrap_or_else(|| val_b.to_string());
+                                    match str_a.cmp(&str_b) {
+                                        std::cmp::Ordering::Equal => continue,
+                                        ordering => return ordering,
+                                    }
+                                }
                             }
                         }
                     }
@@ -162,10 +188,24 @@ impl DatabaseMetaProcessor {
             sql_statements.extend(comparison_result);
         }
 
-        // Write DML statements to file
-        let mut file = File::create("dml.sql")?;
-        for statement in sql_statements {
-            writeln!(file, "{};", statement)?;
+        // Write DML statements to files per table
+        std::fs::create_dir_all("out")?;
+        
+        for table_config in &self.config.tables {
+            let table_name = &table_config.name;
+            let table_statements: Vec<&String> = sql_statements.iter()
+                .filter(|stmt| stmt.contains(&format!("INTO {}", table_name)) || 
+                              stmt.contains(&format!("UPDATE {}", table_name)) ||
+                              stmt.contains(&format!("DELETE FROM {}", table_name)))
+                .collect();
+            
+            if !table_statements.is_empty() {
+                let file_path = format!("out/{}.sql", table_name);
+                let mut file = File::create(file_path)?;
+                for statement in table_statements {
+                    writeln!(file, "{};", statement)?;
+                }
+            }
         }
 
         Ok("Comparison completed and SQL generated.".to_string())
@@ -365,8 +405,10 @@ impl DatabaseMetaProcessor {
         for row in rows {
             let mut record = HashMap::new();
             for (i, field) in fields.iter().enumerate() {
-                let value: Option<String> = row.try_get(i).unwrap_or(None);
-                record.insert(field.clone(), serde_json::Value::String(value.unwrap_or_default()));
+                let column_config = columns.iter().find(|c| c.column_name == *field)
+                    .context("Column configuration not found")?;
+                let value = self.extract_typed_value(&row, i, column_config);
+                record.insert(field.clone(), value);
             }
             records.push(record);
         }
@@ -474,6 +516,8 @@ impl DatabaseMetaProcessor {
                     let formatted_value = match target_value {
                         Some(serde_json::Value::String(s)) => format!("'{}'", s.replace("'", "''")),
                         Some(serde_json::Value::Null) | None => "NULL".to_string(),
+                        Some(serde_json::Value::Number(n)) => n.to_string(),
+                        Some(serde_json::Value::Bool(b)) => if *b { "'Y'".to_string() } else { "'N'".to_string() },
                         Some(v) => v.to_string(),
                     };
                     updates.push(format!("{} = {}", column_name, formatted_value));
@@ -519,6 +563,185 @@ impl DatabaseMetaProcessor {
             .join(" AND ");
 
         format!("DELETE FROM {} WHERE {}", table_name, where_clause)
+    }
+
+    fn extract_typed_value(&self, row: &sqlx::postgres::PgRow, index: usize, column_config: &ColumnConfig) -> serde_json::Value {
+        use sqlx::Row;
+        
+        // First check if the column should be tracked or use default
+        if column_config.is_track != "true" {
+            // Use default value for non-tracked columns
+            return match column_config.column_type.as_deref() {
+                Some("numeric") | Some("integer") | Some("bigint") | Some("decimal") | Some("real") | Some("double") => {
+                    let default_str = column_config.default.as_ref().cloned().unwrap_or_else(|| "0".to_string());
+                    if default_str == "CURRENT_TIMESTAMP" {
+                        // Generate current timestamp in milliseconds for timestamp columns
+                        let current_timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as i64;
+                        serde_json::Value::Number(serde_json::Number::from(current_timestamp))
+                    } else if let Ok(decimal) = BigDecimal::from_str(&default_str) {
+                        // Use BigDecimal for precise parsing
+                        let decimal_str = decimal.to_string();
+                        if !decimal_str.contains('.') || decimal_str.ends_with(".0") {
+                            // Integer value
+                            if let Ok(int_val) = decimal_str.parse::<i64>() {
+                                serde_json::Value::Number(serde_json::Number::from(int_val))
+                            } else {
+                                serde_json::Value::String(decimal_str)
+                            }
+                        } else {
+                            // Has decimal places
+                            if let Ok(float_val) = decimal_str.parse::<f64>() {
+                                serde_json::Number::from_f64(float_val)
+                                    .map(serde_json::Value::Number)
+                                    .unwrap_or(serde_json::Value::String(decimal_str))
+                            } else {
+                                serde_json::Value::String(decimal_str)
+                            }
+                        }
+                    } else {
+                        serde_json::Value::String(default_str)
+                    }
+                }
+                _ => {
+                    let default_str = column_config.default.as_ref().cloned().unwrap_or_else(|| "".to_string());
+                    serde_json::Value::String(default_str)
+                }
+            };
+        }
+
+        // For tracked columns, extract the actual value with proper typing
+        match column_config.data_type.as_str() {
+            "integer" | "int4" | "serial" => {
+                match row.try_get::<Option<i32>, _>(index) {
+                    Ok(Some(val)) => serde_json::Value::Number(serde_json::Number::from(val)),
+                    Ok(None) => serde_json::Value::Null,
+                    Err(_) => serde_json::Value::Null,
+                }
+            }
+            "bigint" | "int8" | "bigserial" => {
+                match row.try_get::<Option<i64>, _>(index) {
+                    Ok(Some(val)) => serde_json::Value::Number(serde_json::Number::from(val)),
+                    Ok(None) => serde_json::Value::Null,
+                    Err(_) => serde_json::Value::Null,
+                }
+            }
+            "smallint" | "int2" | "smallserial" => {
+                match row.try_get::<Option<i16>, _>(index) {
+                    Ok(Some(val)) => serde_json::Value::Number(serde_json::Number::from(val)),
+                    Ok(None) => serde_json::Value::Null,
+                    Err(_) => serde_json::Value::Null,
+                }
+            }
+            "real" | "float4" => {
+                match row.try_get::<Option<f32>, _>(index) {
+                    Ok(Some(val)) => {
+                        serde_json::Number::from_f64(val as f64)
+                            .map(serde_json::Value::Number)
+                            .unwrap_or(serde_json::Value::Null)
+                    }
+                    Ok(None) => serde_json::Value::Null,
+                    Err(_) => serde_json::Value::Null,
+                }
+            }
+            "double precision" | "float8" => {
+                match row.try_get::<Option<f64>, _>(index) {
+                    Ok(Some(val)) => {
+                        serde_json::Number::from_f64(val)
+                            .map(serde_json::Value::Number)
+                            .unwrap_or(serde_json::Value::Null)
+                    }
+                    Ok(None) => serde_json::Value::Null,
+                    Err(_) => serde_json::Value::Null,
+                }
+            }
+            "numeric" | "decimal" => {
+                // Handle NUMERIC/DECIMAL with BigDecimal for precision
+                match row.try_get::<Option<BigDecimal>, _>(index) {
+                    Ok(Some(decimal)) => {
+                        // Convert BigDecimal to appropriate JSON representation
+                        let decimal_str = decimal.to_string();
+                        
+                        // Check if it's an integer by looking for decimal point
+                        if !decimal_str.contains('.') || decimal_str.ends_with(".0") {
+                            // Integer value
+                            if let Ok(int_val) = decimal_str.parse::<i64>() {
+                                serde_json::Value::Number(serde_json::Number::from(int_val))
+                            } else {
+                                // Large integer that doesn't fit in i64
+                                serde_json::Value::String(decimal_str)
+                            }
+                        } else {
+                            // Has decimal places - try as f64, fallback to string for precision
+                            if let Ok(float_val) = decimal_str.parse::<f64>() {
+                                serde_json::Number::from_f64(float_val)
+                                    .map(serde_json::Value::Number)
+                                    .unwrap_or(serde_json::Value::String(decimal_str))
+                            } else {
+                                serde_json::Value::String(decimal_str)
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // Use configured default value for non-tracked columns
+                        if column_config.is_track != "true" {
+                            if let Some(default_val) = &column_config.default {
+                                if let Ok(num) = default_val.parse::<i64>() {
+                                    serde_json::Value::Number(serde_json::Number::from(num))
+                                } else {
+                                    serde_json::Value::String(default_val.clone())
+                                }
+                            } else {
+                                serde_json::Value::Null
+                            }
+                        } else {
+                            serde_json::Value::Null
+                        }
+                    }
+                    Err(_) => {
+                        // Use configured default value for non-tracked columns
+                        if column_config.is_track != "true" {
+                            if let Some(default_val) = &column_config.default {
+                                if let Ok(num) = default_val.parse::<i64>() {
+                                    serde_json::Value::Number(serde_json::Number::from(num))
+                                } else {
+                                    serde_json::Value::String(default_val.clone())
+                                }
+                            } else {
+                                serde_json::Value::Null
+                            }
+                        } else {
+                            serde_json::Value::Null
+                        }
+                    }
+                }
+            }
+            "boolean" | "bool" => {
+                match row.try_get::<Option<bool>, _>(index) {
+                    Ok(Some(val)) => serde_json::Value::Bool(val),
+                    Ok(None) => serde_json::Value::Null,
+                    Err(_) => serde_json::Value::Null,
+                }
+            }
+            "timestamp" | "timestamptz" | "date" | "time" | "timetz" => {
+                // Handle timestamps as strings for consistency
+                match row.try_get::<Option<String>, _>(index) {
+                    Ok(Some(val)) => serde_json::Value::String(val),
+                    Ok(None) => serde_json::Value::Null,
+                    Err(_) => serde_json::Value::Null,
+                }
+            }
+            _ => {
+                // Default to string for text, varchar, char, etc.
+                match row.try_get::<Option<String>, _>(index) {
+                    Ok(Some(val)) => serde_json::Value::String(val),
+                    Ok(None) => serde_json::Value::Null,
+                    Err(_) => serde_json::Value::Null,
+                }
+            }
+        }
     }
 }
 
