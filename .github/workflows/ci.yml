@@ -1,0 +1,11 @@
+name: CI
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-ci.yml@main
+    with:
+      rust-toolchain: stable
