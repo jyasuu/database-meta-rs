@@ -1,11 +1,10 @@
 name: CI
 on: [push, pull_request]
-
-permissions:
-  contents: read
-
 jobs:
   ci:
-    uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-ci.yml@main
-    with:
-      rust-toolchain: stable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: loonghao/rust-actions-toolkit@main
+        with:
+          command: ci
