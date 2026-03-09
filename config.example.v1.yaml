@@ -1,0 +1,50 @@
+# Example v1 config (original Java / first Rust port format)
+# Run: db-tools migrate upgrade -i config.example.v1.yaml --diff
+databases:
+  source:
+    jdbcUrl: "jdbc:postgresql://localhost:5432/source_db"
+    username: "postgres"
+    password: "s3cret"
+  target:
+    jdbcUrl: "jdbc:postgresql://localhost:5432/target_db"
+    username: "postgres"
+    password: "s3cret"
+
+tables:
+  - name: users
+    order: "id, name"
+    primary_key:
+      - id
+    columns:
+      - column_name: id
+        is_track: "true"
+        type: numeric
+      - column_name: name
+        is_track: "true"
+        type: string
+      - column_name: email
+        is_track: "true"
+        type: string
+      - column_name: created_at
+        is_track: "false"
+        type: string
+        default: ""
+
+  - name: products
+    order: "product_id"
+    primary_key:
+      - product_id
+    columns:
+      - column_name: product_id
+        is_track: "true"
+        type: numeric
+      - column_name: product_name
+        is_track: "true"
+        type: string
+      - column_name: price
+        is_track: "true"
+        type: numeric
+      - column_name: audit_col
+        is_track: "false"
+        type: string
+        default: "N/A"

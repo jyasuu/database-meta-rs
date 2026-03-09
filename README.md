@@ -1,94 +1,134 @@
-# db-tools (Rust port of DatabaseDataCommands)
+# db-tools v2
 
-A Rust CLI tool that replicates the two Spring Shell commands from the original Java code:
-
-| Java `@ShellMethod`  | Rust subcommand    |
-|----------------------|--------------------|
-| `database-meta`      | `database-meta`    |
-| `compare-tables`     | `compare-tables`   |
+A Rust CLI for PostgreSQL data export and cross-database sync, with a built-in config migration tool.
 
 ---
 
-## Build
+## Quick start
 
 ```bash
 cargo build --release
-# binary at: ./target/release/db-tools
+./target/release/db-tools --help
 ```
 
 ---
 
 ## Commands
 
-### `database-meta` — Export table data
-
-Reads a PostgreSQL table (respecting tracked/default columns) and writes it to a file.
+### `export` — dump table data to files
 
 ```bash
-db-tools database-meta <FORMAT> -c config.yaml -o ./out
+db-tools export <FORMAT> -c config.yaml -o ./out
 ```
 
-**Formats:** `json` (default), `csv`, `xml`, `html`, `insert` (SQL INSERTs), `yaml`
-
-### `compare-tables` — Diff two databases and emit DML
-
-Compares source vs target databases table-by-table and writes `dml.sql` with INSERT/UPDATE/DELETE statements.
+Formats: `json` `csv` `xml` `html` `yaml` `insert`
 
 ```bash
-db-tools compare-tables -c config.yaml
+db-tools export json   -c config.yaml -o ./out
+db-tools export insert -c config.yaml -o ./out   # generates SQL INSERT statements
+```
+
+### `sync` — diff two databases and emit DML
+
+```bash
+db-tools sync -c config.yaml -o dml.sql
+db-tools sync -c config.yaml --dry-run    # print SQL without writing file
+```
+
+Emits `INSERT`, `UPDATE`, `DELETE` for rows that differ between `source` and `target`.
+
+### `migrate` — config schema tools
+
+```bash
+# Upgrade a v1 config to v2 (with coloured diff)
+db-tools migrate upgrade -i config.v1.yaml --diff
+
+# Validate a config
+db-tools migrate validate -c config.yaml --version v2
+
+# Show what changed between v1 and v2
+db-tools migrate changelog
 ```
 
 ---
 
-## Config file format
-
-See `config.example.yaml` for a full example.
+## Config format (v2)
 
 ```yaml
 databases:
   source:
-    jdbcUrl: "jdbc:postgresql://host:5432/dbname"
-    username: "user"
-    password: "pass"
-  target:                          # only needed for compare-tables
-    jdbcUrl: "jdbc:postgresql://host:5432/dbname"
-    username: "user"
-    password: "pass"
+    url: "postgresql://user:pass@host:5432/dbname"
+  target:           # only needed for sync
+    url: "postgresql://user:pass@host:5432/dbname"
 
 tables:
-  - name: my_table
-    order: "col1, col2"            # optional; sort order for export
-    primary_key: [col1]            # required for compare-tables
+  - name: users
+    schema: public  # optional
+    order: "id"     # optional sort columns for export
+    primary_key:    # required for sync
+      - id
     columns:
-      - column_name: col1
-        is_track: "true"           # "true" = read from DB
+      - column_name: id
+        is_track: true       # read actual DB value
         type: numeric
-      - column_name: audit_col
-        is_track: "false"          # "false" = replaced with default
+      - column_name: audit_ts
+        is_track: false      # substitute default instead
         type: string
-        default: "N/A"
+        default: ""
 ```
 
----
-
-## Key design decisions vs Java original
-
-| Java                                  | Rust                                           |
-|---------------------------------------|------------------------------------------------|
-| jOOQ DSLContext + `Result<Record>`    | `postgres` crate + custom `DbRow`/`Value`      |
-| Spring Shell `@ShellComponent`        | `clap` derive-based CLI                        |
-| SnakeYAML                             | `serde_yaml`                                   |
-| `Collections.sort` with Comparator   | `Vec::sort_by` with closure                    |
-| `Objects.equals` + `StringUtils.difference` | `values_equal()` with `\r` stripping  |
-| jOOQ SQL query builder                | Hand-built SQL strings in `commands.rs`        |
-| `result.formatCSV/JSON/XML/...`       | Custom formatters in `commands.rs`             |
+See `config.example.v2.yaml` for a full example.
 
 ---
 
-## Dependencies
+## Migrating from v1
 
-- [`clap`](https://docs.rs/clap) — CLI parsing
-- [`postgres`](https://docs.rs/postgres) — PostgreSQL driver
-- [`serde`](https://docs.rs/serde) + [`serde_yaml`](https://docs.rs/serde_yaml) + [`serde_json`](https://docs.rs/serde_json) — serialization
-- [`csv`](https://docs.rs/csv) — CSV writing
-- [`anyhow`](https://docs.rs/anyhow) — error handling
+If you have a config from the Java version or the original Rust port (v1):
+
+```bash
+# Preview changes
+db-tools migrate upgrade -i my-config.yaml --diff
+
+# Write converted file
+db-tools migrate upgrade -i my-config.yaml -o my-config.v2.yaml
+```
+
+### What changes
+
+| Field | v1 | v2 |
+|---|---|---|
+| DB URL key | `jdbcUrl` | `url` |
+| URL prefix | `jdbc:postgresql://` | `postgresql://` |
+| Credentials | separate `username`/`password` fields | embedded in URL or separate |
+| `is_track` | `"true"` / `"false"` string | `true` / `false` boolean |
+| `type` | optional string | optional enum (`string`, `numeric`, `bool`) |
+| `schema` | not supported | optional per-table |
+
+---
+
+## Design improvements over v1
+
+| Area | v1 | v2 |
+|---|---|---|
+| DB driver | `postgres` (sync) | `tokio-postgres` + `deadpool-postgres` (async, pooled) |
+| Config types | loose strings | typed enums (`TrackMode`, `ColumnType`, `OutputFormat`) |
+| Error handling | `anyhow` everywhere | `thiserror` typed errors + `anyhow` at app boundary |
+| Logging | `println!` | `tracing` with `-v`/`-vv`/`-vvv` verbosity |
+| Progress | none | `indicatif` progress bar for sync |
+| PK collision | `|` join (ambiguous) | `\0` join (collision-safe) |
+| Sorting | manual `partial_cmp_with` | `PartialOrd` impl on `Value` |
+| Date/UUID | treated as text | native `chrono` + `uuid` types |
+| Output formats | single `commands.rs` | one file per format in `format/` |
+| Migration | n/a | `migrate upgrade` with LCS diff |
+
+---
+
+## Verbosity / logging
+
+```bash
+db-tools -v   sync ...   # INFO  — connection info, table counts
+db-tools -vv  sync ...   # DEBUG — SQL queries
+db-tools -vvv sync ...   # TRACE — everything
+```
+
+Or set `RUST_LOG=debug` to override.

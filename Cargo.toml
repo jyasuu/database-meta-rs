@@ -1,6 +1,6 @@
 [package]
 name = "db-tools"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -8,26 +8,43 @@ name = "db-tools"
 path = "src/main.rs"
 
 [dependencies]
-# CLI argument parsing
-clap = { version = "4", features = ["derive"] }
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
 
-# YAML parsing
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# PostgreSQL — async, native TLS support, compile-time checked queries
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-uuid-1", "with-chrono-0_4"] }
+deadpool-postgres = { version = "0.12" }          # connection pooling
+native-tls = "0.2"
+postgres-native-tls = "0.5"
+
+# Serialization
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1"
 
-# PostgreSQL
-postgres = { version = "0.19", features = ["with-serde_json-1"] }
-native-tls = "0.2"
-postgres-native-tls = "0.5"
+# Date/time (matches postgres TIMESTAMP/DATE types)
+chrono = { version = "0.4", features = ["serde"] }
 
-# CSV
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# CSV output
 csv = "1"
 
-# Error handling
+# Error handling — thiserror for typed errors, anyhow for app-level
 anyhow = "1"
 thiserror = "1"
 
-# Misc
-itertools = "0.12"
+# Tracing/logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Progress display for large table diffs
+indicatif = "0.17"
 hex = "0.4.3"
+
+[dev-dependencies]
+tokio-test = "0.4"
