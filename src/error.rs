@@ -11,7 +11,6 @@ pub enum DbToolsError {
     //     #[source]
     //     source: tokio_postgres::Error,
     // },
-
     #[error("Query failed on table '{table}': {source}")]
     Query {
         table: String,
@@ -27,7 +26,6 @@ pub enum DbToolsError {
 
     // #[error("Unsupported column type '{col_type}' for column '{column}'")]
     // UnsupportedType { col_type: String, column: String },
-
     #[error("IO error writing '{path}': {source}")]
     Io {
         path: String,
@@ -37,7 +35,6 @@ pub enum DbToolsError {
 
     #[error("Serialization error: {0}")]
     Serialize(String),
-
     // #[error("Migration error: {0}")]
     // Migration(String),
 }

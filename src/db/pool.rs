@@ -29,7 +29,8 @@ impl DbPool {
             })?;
 
         // Eagerly verify connectivity
-        let _ = pool.get()
+        let _ = pool
+            .get()
             .await
             .with_context(|| format!("Cannot connect to: {}", redact_password(&conn_str)))?;
 
