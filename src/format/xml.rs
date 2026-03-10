@@ -1,11 +1,11 @@
 use crate::db::DbRow;
 
 fn escape(s: &str) -> String {
-    s.replace('&',  "&amp;")
-     .replace('<',  "&lt;")
-     .replace('>',  "&gt;")
-     .replace('"',  "&quot;")
-     .replace('\'', "&apos;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 pub fn render(rows: &[DbRow], cols: &[&str], table_name: &str) -> String {

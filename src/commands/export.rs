@@ -1,10 +1,10 @@
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 use tokio::fs;
 use tracing::info;
 
 use crate::config;
-use crate::db::{DbPool, fetch_rows_with_defaults};
+use crate::db::{fetch_rows_with_defaults, DbPool};
 use crate::format::{self, OutputFormat};
 
 pub async fn run(config_path: &str, format: OutputFormat, out_dir: &str) -> Result<()> {
@@ -16,14 +16,10 @@ pub async fn run(config_path: &str, format: OutputFormat, out_dir: &str) -> Resu
 
     for table in &cfg.tables {
         let order_cols = table.order_columns();
-        let qualified  = table.qualified_name();
+        let qualified = table.qualified_name();
 
-        let mut rows = fetch_rows_with_defaults(
-            pool.inner(),
-            &table.name,
-            &qualified,
-            &table.columns,
-        ).await?;
+        let mut rows =
+            fetch_rows_with_defaults(pool.inner(), &table.name, &qualified, &table.columns).await?;
 
         // Sort rows in Rust after fetch (ORDER BY is pushed post-select
         // so defaults don't interfere with the DB planner)
@@ -32,8 +28,7 @@ pub async fn run(config_path: &str, format: OutputFormat, out_dir: &str) -> Resu
                 for col in &order_cols {
                     let va = a.get(col);
                     let vb = b.get(col);
-                    let ord = va.partial_cmp(vb)
-                        .unwrap_or(std::cmp::Ordering::Equal);
+                    let ord = va.partial_cmp(vb).unwrap_or(std::cmp::Ordering::Equal);
                     if ord != std::cmp::Ordering::Equal {
                         return ord;
                     }
@@ -42,14 +37,15 @@ pub async fn run(config_path: &str, format: OutputFormat, out_dir: &str) -> Resu
             });
         }
 
-        let col_names: Vec<&str> = table.columns.iter()
+        let col_names: Vec<&str> = table
+            .columns
+            .iter()
             .map(|c| c.column_name.as_str())
             .collect();
 
         let content = format::render(&format, &rows, &col_names, &table.name)?;
 
-        let path = Path::new(out_dir)
-            .join(format!("{}{}", table.name, format.extension()));
+        let path = Path::new(out_dir).join(format!("{}{}", table.name, format.extension()));
 
         fs::write(&path, content).await?;
         info!("Written: {}", path.display());

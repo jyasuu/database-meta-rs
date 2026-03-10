@@ -13,8 +13,8 @@
 //!   - Optional `schema` field on tables
 //!   - Optional `primary_key` promoted to required for sync
 
-pub mod v1;
 pub mod upgrade;
+pub mod v1;
 
 use anyhow::Result;
 use clap::Subcommand;
@@ -59,12 +59,12 @@ pub enum ConfigVersion {
 
 pub fn run(action: MigrateAction) -> Result<()> {
     match action {
-        MigrateAction::Upgrade { input, output, diff } => {
-            upgrade::run(&input, output.as_deref(), diff)
-        }
-        MigrateAction::Validate { config, version } => {
-            validate(&config, &version)
-        }
+        MigrateAction::Upgrade {
+            input,
+            output,
+            diff,
+        } => upgrade::run(&input, output.as_deref(), diff),
+        MigrateAction::Validate { config, version } => validate(&config, &version),
         MigrateAction::Changelog => {
             print_changelog();
             Ok(())
@@ -80,11 +80,19 @@ fn validate(config_path: &str, version: &ConfigVersion) -> Result<()> {
             println!("  Source DB: {}", cfg.databases.source.jdbc_url);
             println!("  Tables:    {}", cfg.tables.len());
             for t in &cfg.tables {
-                let pk = t.primary_key.as_ref()
+                let pk = t
+                    .primary_key
+                    .as_ref()
                     .map(|k| k.join(", "))
                     .unwrap_or_else(|| "(none)".to_string());
                 let tracked: usize = t.columns.iter().filter(|c| c.is_track == "true").count();
-                println!("    - {} ({} cols, {} tracked, pk: {})", t.name, t.columns.len(), tracked, pk);
+                println!(
+                    "    - {} ({} cols, {} tracked, pk: {})",
+                    t.name,
+                    t.columns.len(),
+                    tracked,
+                    pk
+                );
             }
         }
         ConfigVersion::V2 => {
@@ -96,11 +104,19 @@ fn validate(config_path: &str, version: &ConfigVersion) -> Result<()> {
             }
             println!("  Tables:    {}", cfg.tables.len());
             for t in &cfg.tables {
-                let pk = t.primary_key.as_ref()
+                let pk = t
+                    .primary_key
+                    .as_ref()
                     .map(|k| k.join(", "))
                     .unwrap_or_else(|| "(none)".to_string());
                 let tracked: usize = t.columns.iter().filter(|c| c.is_tracked()).count();
-                println!("    - {} ({} cols, {} tracked, pk: {})", t.name, t.columns.len(), tracked, pk);
+                println!(
+                    "    - {} ({} cols, {} tracked, pk: {})",
+                    t.name,
+                    t.columns.len(),
+                    tracked,
+                    pk
+                );
             }
         }
     }

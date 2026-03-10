@@ -1,9 +1,9 @@
 //! V1 config schema — mirrors the original Java YAML format exactly.
 //! Used only for deserialization during migration; never used at runtime.
 
-use serde::Deserialize;
-use anyhow::Result;
 use crate::error::DbToolsError;
+use anyhow::Result;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct V1Config {
@@ -48,8 +48,10 @@ pub struct V1ColumnConfig {
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 pub fn load(path: &str) -> Result<V1Config> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| DbToolsError::Io { path: path.to_string(), source: e })?;
+    let content = std::fs::read_to_string(path).map_err(|e| DbToolsError::Io {
+        path: path.to_string(),
+        source: e,
+    })?;
     serde_yaml::from_str(&content)
         .map_err(|e| DbToolsError::Config(format!("v1 parse error: {}", e)).into())
 }

@@ -26,11 +26,11 @@ pub enum OutputFormat {
 impl OutputFormat {
     pub fn extension(&self) -> &'static str {
         match self {
-            OutputFormat::Json   => ".json",
-            OutputFormat::Csv    => ".csv",
-            OutputFormat::Xml    => ".xml",
-            OutputFormat::Html   => ".html",
-            OutputFormat::Yaml   => ".yaml",
+            OutputFormat::Json => ".json",
+            OutputFormat::Csv => ".csv",
+            OutputFormat::Xml => ".xml",
+            OutputFormat::Html => ".html",
+            OutputFormat::Yaml => ".yaml",
             OutputFormat::Insert => ".sql",
         }
     }
@@ -45,11 +45,11 @@ pub fn render(
     table_name: &str,
 ) -> Result<String> {
     match format {
-        OutputFormat::Json   => json::render(rows, cols),
-        OutputFormat::Csv    => Ok(csv::render(rows, cols)),
-        OutputFormat::Xml    => Ok(xml::render(rows, cols, table_name)),
-        OutputFormat::Html   => Ok(html::render(rows, cols)),
-        OutputFormat::Yaml   => yaml::render(rows, cols),
+        OutputFormat::Json => json::render(rows, cols),
+        OutputFormat::Csv => Ok(csv::render(rows, cols)),
+        OutputFormat::Xml => Ok(xml::render(rows, cols, table_name)),
+        OutputFormat::Html => Ok(html::render(rows, cols)),
+        OutputFormat::Yaml => yaml::render(rows, cols),
         OutputFormat::Insert => Ok(insert::render(rows, table_name)),
     }
 }

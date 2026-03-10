@@ -1,13 +1,13 @@
 use crate::db::DbRow;
 
 fn escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 pub fn render(rows: &[DbRow], cols: &[&str]) -> String {
-    let mut out = String::from(
-        "<table>\n  <thead>\n    <tr>",
-    );
+    let mut out = String::from("<table>\n  <thead>\n    <tr>");
     for &col in cols {
         out.push_str(&format!("<th>{}</th>", escape(col)));
     }

@@ -81,18 +81,25 @@ async fn main() -> Result<()> {
     };
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new(level)),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level)),
         )
         .with_target(false)
         .compact()
         .init();
 
     match cli.command {
-        Commands::Export { format, config, out } => {
+        Commands::Export {
+            format,
+            config,
+            out,
+        } => {
             commands::export::run(&config, format, &out).await?;
         }
-        Commands::Sync { config, out, dry_run } => {
+        Commands::Sync {
+            config,
+            out,
+            dry_run,
+        } => {
             commands::sync::run(&config, &out, dry_run).await?;
         }
         Commands::Migrate { action } => {

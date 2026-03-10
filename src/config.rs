@@ -1,6 +1,6 @@
+use crate::error::{DbToolsError, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use crate::error::{DbToolsError, Result};
 
 // ─── Top-level ────────────────────────────────────────────────────────────────
 
@@ -34,9 +34,7 @@ impl DbConfig {
     /// Return a tokio-postgres compatible connection string
     pub fn connection_string(&self) -> String {
         // Strip JDBC prefix if present
-        let url = self.url
-            .strip_prefix("jdbc:")
-            .unwrap_or(&self.url);
+        let url = self.url.strip_prefix("jdbc:").unwrap_or(&self.url);
 
         // If credentials are provided separately, inject them
         if let (Some(user), Some(pass)) = (&self.username, &self.password) {
@@ -149,9 +147,10 @@ impl ColumnConfig {
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 pub fn load(path: &str) -> Result<Config> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| DbToolsError::Io { path: path.to_string(), source: e })?;
+    let content = fs::read_to_string(path).map_err(|e| DbToolsError::Io {
+        path: path.to_string(),
+        source: e,
+    })?;
 
-    serde_yaml::from_str(&content)
-        .map_err(|e| DbToolsError::Config(e.to_string()))
+    serde_yaml::from_str(&content).map_err(|e| DbToolsError::Config(e.to_string()))
 }

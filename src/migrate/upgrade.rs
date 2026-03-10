@@ -1,11 +1,11 @@
 //! Upgrade a v1 config to v2, with optional diff output.
 
-use anyhow::Result;
 use crate::config::{
-    self, ColumnConfig, ColumnType, Config, DbConfig, Databases, TableConfig, TrackMode,
+    self, ColumnConfig, ColumnType, Config, Databases, DbConfig, TableConfig, TrackMode,
 };
-use crate::migrate::v1::{V1Config, V1DbConfig, V1ColumnConfig};
 use crate::error::DbToolsError;
+use crate::migrate::v1::{V1ColumnConfig, V1Config, V1DbConfig};
+use anyhow::Result;
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
@@ -20,8 +20,7 @@ pub fn run(input_path: &str, output_path: Option<&str>, show_diff: bool) -> Resu
     let v2 = convert_config(&v1, &mut warnings)?;
 
     // 4. Serialize v2 to YAML string
-    let v2_yaml = serde_yaml::to_string(&v2)
-        .map_err(|e| DbToolsError::Serialize(e.to_string()))?;
+    let v2_yaml = serde_yaml::to_string(&v2).map_err(|e| DbToolsError::Serialize(e.to_string()))?;
 
     // 5. Show diff if requested
     if show_diff {
@@ -43,8 +42,10 @@ pub fn run(input_path: &str, output_path: Option<&str>, show_diff: bool) -> Resu
         .map(|s| s.to_string())
         .unwrap_or_else(|| derive_output_path(input_path));
 
-    std::fs::write(&out, &v2_yaml)
-        .map_err(|e| DbToolsError::Io { path: out.clone(), source: e })?;
+    std::fs::write(&out, &v2_yaml).map_err(|e| DbToolsError::Io {
+        path: out.clone(),
+        source: e,
+    })?;
 
     println!("✓ Migrated config written to: {}", out);
     Ok(())
@@ -56,7 +57,9 @@ fn convert_config(v1: &V1Config, warnings: &mut Vec<String>) -> Result<Config> {
     let source = convert_db_config(&v1.databases.source);
     let target = v1.databases.target.as_ref().map(convert_db_config);
 
-    let tables = v1.tables.iter()
+    let tables = v1
+        .tables
+        .iter()
         .map(|t| convert_table(t, warnings))
         .collect::<Result<Vec<_>>>()?;
 
@@ -68,9 +71,7 @@ fn convert_config(v1: &V1Config, warnings: &mut Vec<String>) -> Result<Config> {
 
 fn convert_db_config(v1: &V1DbConfig) -> DbConfig {
     // Strip jdbc: prefix and embed credentials into the URL
-    let base = v1.jdbc_url
-        .strip_prefix("jdbc:")
-        .unwrap_or(&v1.jdbc_url);
+    let base = v1.jdbc_url.strip_prefix("jdbc:").unwrap_or(&v1.jdbc_url);
 
     let url = if let Some(rest) = base.strip_prefix("postgresql://") {
         // Only embed if credentials not already present
@@ -103,13 +104,15 @@ fn convert_table(
         ));
     }
 
-    let columns = v1.columns.iter()
+    let columns = v1
+        .columns
+        .iter()
         .map(|c| convert_column(c, &v1.name, warnings))
         .collect::<Result<Vec<_>>>()?;
 
     Ok(TableConfig {
         name: v1.name.clone(),
-        schema: None,   // v1 had no schema concept
+        schema: None, // v1 had no schema concept
         order: v1.order.clone(),
         primary_key: v1.primary_key.clone(),
         columns,
@@ -123,9 +126,9 @@ fn convert_column(
 ) -> Result<ColumnConfig> {
     // is_track: "true"/"false" string → enum
     let is_track = match v1.is_track.trim() {
-        "true"  => TrackMode::True,
+        "true" => TrackMode::True,
         "false" => TrackMode::False,
-        other   => {
+        other => {
             warnings.push(format!(
                 "Table '{}', column '{}': unknown is_track value '{}', defaulting to false.",
                 table_name, v1.column_name, other
@@ -137,9 +140,9 @@ fn convert_column(
     // col_type: loose string → enum
     let col_type = match v1.col_type.as_deref().unwrap_or("string") {
         "numeric" => ColumnType::Numeric,
-        "bool"    => ColumnType::Bool,
-        "string"  => ColumnType::String,
-        other     => {
+        "bool" => ColumnType::Bool,
+        "string" => ColumnType::String,
+        other => {
             warnings.push(format!(
                 "Table '{}', column '{}': unknown type '{}', defaulting to string.",
                 table_name, v1.column_name, other
@@ -173,16 +176,16 @@ fn print_diff(before: &str, after: &str) {
 
     // Simple line-by-line diff — no external dep needed
     let before_lines: Vec<&str> = before.lines().collect();
-    let after_lines:  Vec<&str> = after.lines().collect();
+    let after_lines: Vec<&str> = after.lines().collect();
 
     // Use a naive LCS-based approach for clarity
     let lcs = lcs_diff(&before_lines, &after_lines);
 
     for entry in lcs {
         match entry {
-            DiffEntry::Same(line)    => println!("  {}", line),
+            DiffEntry::Same(line) => println!("  {}", line),
             DiffEntry::Removed(line) => println!("\x1b[31m- {}\x1b[0m", line),
-            DiffEntry::Added(line)   => println!("\x1b[32m+ {}\x1b[0m", line),
+            DiffEntry::Added(line) => println!("\x1b[32m+ {}\x1b[0m", line),
         }
     }
     println!();
@@ -216,7 +219,8 @@ fn lcs_diff<'a>(a: &[&'a str], b: &[&'a str]) -> Vec<DiffEntry<'a>> {
     while i > 0 || j > 0 {
         if i > 0 && j > 0 && a[i - 1] == b[j - 1] {
             result.push(DiffEntry::Same(a[i - 1]));
-            i -= 1; j -= 1;
+            i -= 1;
+            j -= 1;
         } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
             result.push(DiffEntry::Added(b[j - 1]));
             j -= 1;

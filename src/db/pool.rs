@@ -24,10 +24,13 @@ impl DbPool {
 
         let pool = cfg
             .create_pool(Some(Runtime::Tokio1), NoTls)
-            .with_context(|| format!("Failed to create pool for: {}", redact_password(&conn_str)))?;
+            .with_context(|| {
+                format!("Failed to create pool for: {}", redact_password(&conn_str))
+            })?;
 
         // Eagerly verify connectivity
-        pool.get().await
+        pool.get()
+            .await
             .with_context(|| format!("Cannot connect to: {}", redact_password(&conn_str)))?;
 
         Ok(Self(pool))
