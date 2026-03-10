@@ -6,6 +6,6 @@ permissions:
 
 jobs:
   ci:
-    uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-ci.yml@main
+    uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-ci.yml@master
     with:
       rust-toolchain: stable
