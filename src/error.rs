@@ -5,12 +5,12 @@ pub enum DbToolsError {
     #[error("Config error: {0}")]
     Config(String),
 
-    #[error("Database connection failed for '{url}': {source}")]
-    Connection {
-        url: String,
-        #[source]
-        source: tokio_postgres::Error,
-    },
+    // #[error("Database connection failed for '{url}': {source}")]
+    // Connection {
+    //     url: String,
+    //     #[source]
+    //     source: tokio_postgres::Error,
+    // },
 
     #[error("Query failed on table '{table}': {source}")]
     Query {
@@ -25,8 +25,8 @@ pub enum DbToolsError {
     #[error("No target database configured (required for sync)")]
     NoTargetDb,
 
-    #[error("Unsupported column type '{col_type}' for column '{column}'")]
-    UnsupportedType { col_type: String, column: String },
+    // #[error("Unsupported column type '{col_type}' for column '{column}'")]
+    // UnsupportedType { col_type: String, column: String },
 
     #[error("IO error writing '{path}': {source}")]
     Io {
@@ -38,8 +38,8 @@ pub enum DbToolsError {
     #[error("Serialization error: {0}")]
     Serialize(String),
 
-    #[error("Migration error: {0}")]
-    Migration(String),
+    // #[error("Migration error: {0}")]
+    // Migration(String),
 }
 
 /// Convenience alias

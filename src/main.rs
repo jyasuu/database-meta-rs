@@ -7,7 +7,7 @@ mod migrate;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 // ─── CLI definition ───────────────────────────────────────────────────────────
 

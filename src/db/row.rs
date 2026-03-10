@@ -24,9 +24,9 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn is_null(&self) -> bool {
-        matches!(self, Value::Null)
-    }
+    // pub fn is_null(&self) -> bool {
+    //     matches!(self, Value::Null)
+    // }
 
     /// Produce a valid SQL literal (for DML generation).
     pub fn to_sql_literal(&self) -> String {

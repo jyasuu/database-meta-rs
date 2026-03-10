@@ -1,7 +1,7 @@
 //! Upgrade a v1 config to v2, with optional diff output.
 
 use crate::config::{
-    self, ColumnConfig, ColumnType, Config, Databases, DbConfig, TableConfig, TrackMode,
+    ColumnConfig, ColumnType, Config, Databases, DbConfig, TableConfig, TrackMode,
 };
 use crate::error::DbToolsError;
 use crate::migrate::v1::{V1ColumnConfig, V1Config, V1DbConfig};

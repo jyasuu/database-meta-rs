@@ -46,5 +46,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 indicatif = "0.17"
 hex = "0.4.3"
 
+openssl = { version = "0.10", features = ["vendored"] }
+
 [dev-dependencies]
 tokio-test = "0.4"
