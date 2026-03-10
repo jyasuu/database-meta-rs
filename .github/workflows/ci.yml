@@ -1,11 +1,190 @@
-name: CI
-on: [push, pull_request]
+name: Release
 
-permissions:
-  contents: read
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: db-tools  # ← Change this to your binary name
 
 jobs:
-  ci:
-    uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-ci.yml@v4.0.0
-    with:
-      rust-toolchain: stable
+  # ─────────────────────────────────────────────
+  # 1. Create the GitHub Release (once)
+  # ─────────────────────────────────────────────
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get tag name
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "TAG=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.TAG }}
+          release_name: Release ${{ steps.tag.outputs.TAG }}
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.TAG, '-') }}  # pre-release if tag has dash (e.g. v1.0.0-beta)
+          body: |
+            ## What's Changed
+            <!-- Auto-generated release. Edit as needed. -->
+
+            ### Download
+            | Platform       | Architecture | Asset                              |
+            |----------------|--------------|------------------------------------|
+            | Linux          | x86_64       | `*-x86_64-unknown-linux-musl`      |
+            | Linux          | aarch64      | `*-aarch64-unknown-linux-musl`     |
+            | macOS          | x86_64       | `*-x86_64-apple-darwin`            |
+            | macOS          | Apple Silicon| `*-aarch64-apple-darwin`           |
+            | Windows        | x86_64       | `*-x86_64-pc-windows-msvc.exe`     |
+
+  # ─────────────────────────────────────────────
+  # 2. Build matrix
+  # ─────────────────────────────────────────────
+  build:
+    name: Build — ${{ matrix.target }}
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux — static musl (no glibc dependency)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            use_cross: false
+            archive_ext: tar.gz
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            use_cross: true          # cross-compile via `cross`
+            archive_ext: tar.gz
+
+          # macOS
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            use_cross: false
+            archive_ext: tar.gz
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            use_cross: false
+            archive_ext: tar.gz
+
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            use_cross: false
+            archive_ext: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Rust toolchain ──────────────────────────
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo registry & build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # ── musl tools (Linux static builds) ────────
+      - name: Install musl-tools (x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get install -y musl-tools
+
+      # ── cross (for aarch64 Linux) ────────────────
+      - name: Install cross
+        if: matrix.use_cross
+        run: cargo install cross --locked
+
+      # ── Build ────────────────────────────────────
+      - name: Build (native)
+        if: "!matrix.use_cross"
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.use_cross
+        run: cross build --release --locked --target ${{ matrix.target }}
+
+      # ── Strip (Linux / macOS only) ───────────────
+      - name: Strip binary
+        if: runner.os != 'Windows'
+        run: |
+          BINARY="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}"
+          if [ -f "$BINARY" ]; then
+            strip "$BINARY" || true   # strip may not support cross-compiled binaries
+          fi
+
+      # ── Package ──────────────────────────────────
+      - name: Package (tar.gz)
+        if: matrix.archive_ext == 'tar.gz'
+        shell: bash
+        run: |
+          ASSET="${{ env.BINARY_NAME }}-${{ matrix.target }}.tar.gz"
+          cp "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}" .
+          tar czf "$ASSET" "${{ env.BINARY_NAME }}" README.md LICENSE 2>/dev/null || \
+          tar czf "$ASSET" "${{ env.BINARY_NAME }}"
+          echo "ASSET=$ASSET" >> $GITHUB_ENV
+
+      - name: Package (zip — Windows)
+        if: matrix.archive_ext == 'zip'
+        shell: pwsh
+        run: |
+          $asset = "${{ env.BINARY_NAME }}-${{ matrix.target }}.zip"
+          Compress-Archive `
+            -Path "target\${{ matrix.target }}\release\${{ env.BINARY_NAME }}.exe" `
+            -DestinationPath $asset
+          echo "ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # ── Upload to release ─────────────────────────
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ env.ASSET }}
+          asset_name: ${{ env.ASSET }}
+          asset_content_type: application/octet-stream
+
+  # ─────────────────────────────────────────────
+  # 3. Publish to crates.io (optional)
+  # ─────────────────────────────────────────────
+  publish-crates:
+    name: Publish to crates.io
+    needs: build
+    runs-on: ubuntu-latest
+    if: "!contains(github.ref, '-')"   # skip pre-releases
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true        # won't fail the whole workflow if not configured
