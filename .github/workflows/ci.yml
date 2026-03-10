@@ -10,6 +10,10 @@ on:
         description: "Release tag (e.g. v1.0.0)"
         required: true
 
+# Fix: explicit write permission required to create releases and upload assets
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
   BINARY_NAME: db-tools  # ← Change this to your binary name
@@ -22,8 +26,7 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      release_id: ${{ steps.create_release.outputs.id }}
+      tag: ${{ steps.tag.outputs.TAG }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,16 +39,15 @@ jobs:
             echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
+      # Fix: use softprops/action-gh-release@v2 — actions/create-release@v1 is
+      # unmaintained and no longer works reliably with modern token permissions.
       - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.TAG }}
-          release_name: Release ${{ steps.tag.outputs.TAG }}
+          name: Release ${{ steps.tag.outputs.TAG }}
           draft: false
-          prerelease: ${{ contains(steps.tag.outputs.TAG, '-') }}  # pre-release if tag has dash (e.g. v1.0.0-beta)
+          prerelease: ${{ contains(steps.tag.outputs.TAG, '-') }}
           body: |
             ## What's Changed
             <!-- Auto-generated release. Edit as needed. -->
@@ -78,7 +80,7 @@ jobs:
 
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            use_cross: true          # cross-compile via `cross`
+            use_cross: true
             archive_ext: tar.gz
 
           # macOS
@@ -137,7 +139,7 @@ jobs:
         run: |
           BINARY="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}"
           if [ -f "$BINARY" ]; then
-            strip "$BINARY" || true   # strip may not support cross-compiled binaries
+            strip "$BINARY" || true
           fi
 
       # ── Package ──────────────────────────────────
@@ -161,16 +163,14 @@ jobs:
             -DestinationPath $asset
           echo "ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      # ── Upload to release ─────────────────────────
+      # Fix: use softprops/action-gh-release@v2 for uploading assets —
+      # actions/upload-release-asset@v1 is also unmaintained and has the same
+      # permission issues as actions/create-release@v1.
       - name: Upload release asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ env.ASSET }}
-          asset_name: ${{ env.ASSET }}
-          asset_content_type: application/octet-stream
+          tag_name: ${{ needs.create-release.outputs.tag }}
+          files: ${{ env.ASSET }}
 
   # ─────────────────────────────────────────────
   # 3. Publish to crates.io (optional)
@@ -187,4 +187,4 @@ jobs:
         run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        continue-on-error: true        # won't fail the whole workflow if not configured
+        continue-on-error: true
