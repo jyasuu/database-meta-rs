@@ -6,6 +6,9 @@ permissions:
 
 jobs:
   ci:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-ci.yml@v4.0.0
     with:
       rust-toolchain: stable
