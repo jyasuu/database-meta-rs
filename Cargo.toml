@@ -17,8 +17,6 @@ tokio = { version = "1", features = ["full"] }
 # PostgreSQL — async, native TLS support, compile-time checked queries
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-uuid-1", "with-chrono-0_4"] }
 deadpool-postgres = { version = "0.12" }          # connection pooling
-native-tls = "0.2"
-postgres-native-tls = "0.5"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
